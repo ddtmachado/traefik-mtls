@@ -1,0 +1,83 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: whoami-tls
+  labels:
+    app: whoami
+    task: tls
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: whoami
+      task: tls
+  template:
+    metadata:
+      labels:
+        app: whoami
+        task: tls
+    spec:
+      containers:
+        - name: whoami
+          image: douglasdtm/whoami:mtls
+          ports:
+            - containerPort: 443
+          volumeMounts:
+            - name: mtls
+              mountPath: /var/run/mtls
+          command:
+            - "/whoami"
+            - "--cacert=/var/run/mtls/tls.ca"
+            - "--cert=/var/run/mtls/tls.crt"
+            - "--key=/var/run/mtls/tls.key"
+            - "--port=443"
+      volumes:
+        - name: mtls
+          secret:
+            secretName: whoami-mtls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whoami-tls
+spec:
+  ports:
+    - name: http
+      port: 443
+  selector:
+    app: whoami
+    task: tls
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: ServersTransport
+metadata:
+  name: whoami-mtls
+spec:
+    # Backend server certificate domain
+    serverName: docker.localhost
+    certificatesSecrets:
+    - whoami-cert
+    rootCAsSecrets:
+    - mtls-ca
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: whoami-mtls
+spec:
+  entryPoints:
+    - web
+  routes:
+  - match: Host(`whoami-a.docker.localhost`)
+    kind: Rule
+    services:
+    - name: whoami-tls
+      port: 443
+      # mTLS from Traefik to the backend
+      serversTransport: whoami-mtls
+# Uncomment to enable TLS or mTLS termination on Traefik
+#  tls:
+#    secretName: whoami-mtls
+#    options:
+#      name: mtls-whoami
